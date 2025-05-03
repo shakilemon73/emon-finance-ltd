@@ -17,5 +17,8 @@
   ],
   "env": {
     "VITE_API_URL": "https://api.emonfinanceltd.com"
-  }
+  },
+  "installCommand": "pnpm install",
+  "buildCommand": "pnpm run build",
+  "outputDirectory": "dist"
 }
