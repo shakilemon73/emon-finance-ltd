@@ -1,8 +1,17 @@
 import { createContext, useState, useContext } from 'react';
 import { createHash } from 'crypto';
 import { useNavigate } from 'react-router-dom';
+import { apiRequest } from '../utils/api';
 
 const AuthContext = createContext();
+
+export const AuthError = class extends Error {
+  constructor(message, status = 401) {
+    super(message);
+    this.status = status;
+    this.name = 'AuthError';
+  }
+};
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
@@ -17,33 +26,25 @@ export function AuthProvider({ children }) {
 
   const login = async (credentials) => {
     try {
+      if (!credentials.email || !credentials.password) {
+        throw new AuthError('Email and password are required', 400);
+      }
+
       // Hash the password before sending
       const hashedPassword = createHash('sha256')
         .update(credentials.password)
         .digest('hex');
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: credentials.email,
-          password: hashedPassword
-        }),
+      const response = await apiRequest('/auth/login', 'POST', {
+        email: credentials.email,
+        password: hashedPassword
       });
 
-      if (!response.ok) {
-        throw new Error('Invalid credentials');
-      }
-
-      const data = await response.json();
-      
       // Store token and user data securely
-      localStorage.setItem('authToken', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      localStorage.setItem('authToken', response.token);
+      localStorage.setItem('user', JSON.stringify(response.user));
 
-      setUser(data.user);
+      setUser(response.user);
       setIsAuthenticated(true);
 
       // Redirect to dashboard or home
@@ -51,19 +52,23 @@ export function AuthProvider({ children }) {
 
       return true;
     } catch (error) {
-      throw new Error(error.message || 'Failed to login');
+      throw error instanceof AuthError ? error : new AuthError('Login failed', 401);
     }
   };
 
   const logout = () => {
-    // Clear all authentication data
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('user');
-    setUser(null);
-    setIsAuthenticated(false);
-    
-    // Redirect to login
-    navigate('/login');
+    try {
+      // Clear all authentication data
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      setUser(null);
+      setIsAuthenticated(false);
+      
+      // Redirect to login
+      navigate('/login');
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
   };
 
   // Check authentication status on mount
@@ -71,19 +76,9 @@ export function AuthProvider({ children }) {
     const token = localStorage.getItem('authToken');
     if (token) {
       try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/verify`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setUser(data.user);
-          setIsAuthenticated(true);
-        } else {
-          logout();
-        }
+        const response = await apiRequest('/auth/verify', 'GET');
+        setUser(response.user);
+        setIsAuthenticated(true);
       } catch (error) {
         logout();
       }
@@ -94,7 +89,13 @@ export function AuthProvider({ children }) {
   checkAuth();
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, login, logout }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      isAuthenticated, 
+      login, 
+      logout,
+      checkAuth
+    }}>
       {children}
     </AuthContext.Provider>
   );
